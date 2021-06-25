@@ -17,18 +17,100 @@ type Guest struct {
 	AccompanyingGuests int    `json:"accompanyingGuests"`
 }
 
+type Table struct {
+	Id             int `json:"id"`
+	SeatedGuests   int `json:"seatedGuests"`
+	AvailableSeats int `json:"availableSeats"`
+}
+
 // GuestStore is a simple in-memory database of guests; GuestStore methods are
 // safe to call concurrently.
 type GuestStore struct {
 	sync.Mutex
-	guests map[string]Guest
-	name   string
+	guests      map[string]Guest
+	tables      map[int]Table
+	seatingPlan map[string]int
 }
 
 func New() *GuestStore {
 	gs := &GuestStore{}
 	gs.guests = make(map[string]Guest)
+	gs.tables = make(map[int]Table)
 	return gs
+}
+
+// SetGuestTable assigns a guest to a table for seating lookup.
+func (gs *GuestStore) SetGuestTable(name string, id int) {
+	gs.Lock()
+	defer gs.Unlock()
+
+	gs.seatingPlan[name] = id
+}
+
+// SetGuestTable assigns a guest to a table for seating lookup.
+func (gs *GuestStore) GetGuestTable(name string) (int, error) {
+	gs.Lock()
+	defer gs.Unlock()
+
+	id, ok := gs.seatingPlan[name]
+	if ok {
+		return id, nil
+	} else {
+		return -1, fmt.Errorf("seating plan for guest name=%s not found", name)
+	}
+}
+
+// GetTable retrieves a table from the store, by id. If no such id exists, an
+// error is returned.
+func (gs *GuestStore) GetTable(id int) (Table, error) {
+	gs.Lock()
+	defer gs.Unlock()
+
+	t, ok := gs.tables[id]
+	if ok {
+		return t, nil
+	} else {
+		return Table{}, fmt.Errorf("table with id=%d not found", id)
+	}
+}
+
+// UpdateTable updates a table existing in the store.
+func (gs *GuestStore) UpdateTable(id int, newSeats int) (int, error) {
+	gs.Lock()
+	defer gs.Unlock()
+
+	t, ok := gs.tables[id]
+	if ok {
+		if t.AvailableSeats >= newSeats {
+			newTable := Table{
+				Id:             id,
+				SeatedGuests:   t.SeatedGuests + newSeats,
+				AvailableSeats: t.AvailableSeats - newSeats,
+			}
+			gs.tables[id] = newTable
+			return newTable.Id, nil
+		} else {
+			return -1, fmt.Errorf("not enough seats on table id=%d", id)
+		}
+
+	} else {
+		return -1, fmt.Errorf("table with id=%d not found", id)
+	}
+}
+
+// CreateTable creates a new table in the store.
+func (gs *GuestStore) CreateTable(id int, seated int, capacity int) int {
+	gs.Lock()
+	defer gs.Unlock()
+
+	table := Table{
+		Id:             id,
+		SeatedGuests:   seated,
+		AvailableSeats: capacity,
+	}
+
+	gs.tables[id] = table
+	return table.Id
 }
 
 // CreateGuest creates a new guest in the store.
