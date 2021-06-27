@@ -6,58 +6,57 @@ package gueststore
 
 import (
 	"fmt"
+	"log"
 	"sync"
 )
 
-// "table": int,
-// "accompanying_guests": int
 type Guest struct {
 	Table              int    `json:"table"`
 	Name               string `json:"name"`
-	AccompanyingGuests int    `json:"accompanyingGuests"`
+	AccompanyingGuests int    `json:"accompanying_guests"`
 }
 
 type Table struct {
 	Id             int `json:"id"`
-	SeatedGuests   int `json:"seatedGuests"`
-	AvailableSeats int `json:"availableSeats"`
+	AvailableSeats int `json:"available_seats"`
+}
+
+type GuestList struct {
+	Guests []Guest `json:"guests"`
 }
 
 // GuestStore is a simple in-memory database of guests; GuestStore methods are
 // safe to call concurrently.
 type GuestStore struct {
 	sync.Mutex
-	guests      map[string]Guest
-	tables      map[int]Table
-	seatingPlan map[string]int
+	guests    map[string]Guest
+	tables    map[int]Table
+	guestList map[int]GuestList
 }
 
 func New() *GuestStore {
 	gs := &GuestStore{}
 	gs.guests = make(map[string]Guest)
 	gs.tables = make(map[int]Table)
+	gs.guestList = make(map[int]GuestList)
 	return gs
 }
 
-// SetGuestTable assigns a guest to a table for seating lookup.
-func (gs *GuestStore) SetGuestTable(name string, id int) {
+// AddGuestToTableList assigns a guest to a table for seating lookup.
+func (gs *GuestStore) AddGuestToTableList(name string, id int, accompanying int) {
 	gs.Lock()
 	defer gs.Unlock()
 
-	gs.seatingPlan[name] = id
-}
-
-// SetGuestTable assigns a guest to a table for seating lookup.
-func (gs *GuestStore) GetGuestTable(name string) (int, error) {
-	gs.Lock()
-	defer gs.Unlock()
-
-	id, ok := gs.seatingPlan[name]
-	if ok {
-		return id, nil
-	} else {
-		return -1, fmt.Errorf("seating plan for guest name=%s not found", name)
+	gl := gs.guestList[id]
+	log.Printf("obtained guest list for table=%d, %#v\n", id, gl.Guests)
+	newGuest := Guest{
+		Table:              id,
+		Name:               name,
+		AccompanyingGuests: accompanying,
 	}
+	gl.Guests = append(gl.Guests, newGuest)
+	gs.guestList[id] = gl
+	log.Printf("updated guest list for table=%d, %#v\n", id, gl.Guests)
 }
 
 // GetTable retrieves a table from the store, by id. If no such id exists, an
@@ -74,40 +73,35 @@ func (gs *GuestStore) GetTable(id int) (Table, error) {
 	}
 }
 
-// UpdateTable updates a table existing in the store.
-func (gs *GuestStore) UpdateTable(id int, newSeats int) (int, error) {
+// UpdateTableCapacity updates an existing table's available seat count in the store.
+func (gs *GuestStore) UpdateTableCapacity(id int, newGuests int) (int, error) {
 	gs.Lock()
 	defer gs.Unlock()
 
 	t, ok := gs.tables[id]
 	if ok {
-		if t.AvailableSeats >= newSeats {
-			newTable := Table{
-				Id:             id,
-				SeatedGuests:   t.SeatedGuests + newSeats,
-				AvailableSeats: t.AvailableSeats - newSeats,
-			}
-			gs.tables[id] = newTable
-			return newTable.Id, nil
-		} else {
-			return -1, fmt.Errorf("not enough seats on table id=%d", id)
+		newTable := Table{
+			Id:             id,
+			AvailableSeats: t.AvailableSeats + newGuests,
 		}
-
+		gs.tables[id] = newTable
+		return newTable.Id, nil
 	} else {
 		return -1, fmt.Errorf("table with id=%d not found", id)
 	}
 }
 
 // CreateTable creates a new table in the store.
-func (gs *GuestStore) CreateTable(id int, seated int, capacity int) int {
+func (gs *GuestStore) CreateTable(id int, capacity int) int {
 	gs.Lock()
 	defer gs.Unlock()
 
 	table := Table{
 		Id:             id,
-		SeatedGuests:   seated,
 		AvailableSeats: capacity,
 	}
+
+	log.Printf("created table %#v", table)
 
 	gs.tables[id] = table
 	return table.Id
@@ -170,47 +164,9 @@ func (gs *GuestStore) GetAllGuests() []Guest {
 	gs.Lock()
 	defer gs.Unlock()
 
-	allGuests := make([]Guest, 0, len(gs.guests))
-	for _, guest := range gs.guests {
-		allGuests = append(allGuests, guest)
+	allGuests := make([]Guest, 0)
+	for _, guestList := range gs.guestList {
+		allGuests = append(allGuests, guestList.Guests...)
 	}
 	return allGuests
 }
-
-// // GetTasksByTag returns all the tasks that have the given tag, in arbitrary
-// // order.
-// func (ts *TaskStore) GetTasksByTag(tag string) []Task {
-// 	ts.Lock()
-// 	defer ts.Unlock()
-
-// 	var tasks []Task
-
-// taskloop:
-// 	for _, task := range ts.tasks {
-// 		for _, taskTag := range task.Tags {
-// 			if taskTag == tag {
-// 				tasks = append(tasks, task)
-// 				continue taskloop
-// 			}
-// 		}
-// 	}
-// 	return tasks
-// }
-
-// // GetTasksByDueDate returns all the tasks that have the given due date, in
-// // arbitrary order.
-// func (ts *TaskStore) GetTasksByDueDate(year int, month time.Month, day int) []Task {
-// 	ts.Lock()
-// 	defer ts.Unlock()
-
-// 	var tasks []Task
-
-// 	for _, task := range ts.tasks {
-// 		y, m, d := task.Due.Date()
-// 		if y == year && m == month && d == day {
-// 			tasks = append(tasks, task)
-// 		}
-// 	}
-
-// 	return tasks
-// }

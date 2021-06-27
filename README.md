@@ -15,7 +15,26 @@ GET    /seats_empty        :  get number of empty seats
 
 The data encoding is JSON. In POST /guest_list/name the client will send a JSON representation of the guest to create on the list. Similarly, everywhere it says the server "returns" something, the returned data is encoded as JSON in the body of the HTTP response.
 
-## In progress
+### Run the app locally
+
+```
+$ go run main.go
+```
+
+### Run unit tests
+
+```
+$ go test ./internal/gueststore -v
+```
+
+### Run manual tests (HTTP calls)
+
+```
+$ go run main.go
+$ sh testing/manual.sh (in another terminal tab)
+```
+
+### In progress (missing)
 
 The setup:
 
@@ -23,14 +42,5 @@ The setup:
 - Another container will run MySQL which will serve as a storage to the API layer
 - docker-compose will be used to run the app
 
-### Run the app locally
-
-```
-$ go run main.go
-```
-
-### Run tests
-
-```
-$ go test ./internal/gueststore -v
-```
+- Use MySQL/gorm in gueststore data access layer
+- Write tests for the server HTTP calls
