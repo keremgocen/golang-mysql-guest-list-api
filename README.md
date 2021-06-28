@@ -39,7 +39,7 @@ $ sh testing/manual.sh (in another terminal tab)
 ### Future improvements (missing)
 
 - [ ] Use MySQL/gorm in gueststore data access layer
-- [ ] Write tests for the server HTTP calls
+- [ ] Write integration tests for the server HTTP calls
 
 The setup:
 - [ ] The app could be run on a Docker container
