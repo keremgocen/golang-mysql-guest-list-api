@@ -154,7 +154,7 @@ func (gs *guestServer) seatArrivingGuest(w http.ResponseWriter, req *http.Reques
 	}
 
 	// check if table is available
-	log.Printf("table=%d has available seats=%d\n", t.Id, t.AvailableSeats-t.SeatedCount)
+	log.Printf("seatArrivingGuest table=%#v has available seats=%d\n", t.Id, t.AvailableSeats-t.SeatedCount)
 	if t.SeatedCount+rg.AccompanyingGuests+1 > t.AvailableSeats {
 		http.Error(w, "not enough available seats left on the table", http.StatusBadRequest)
 		return

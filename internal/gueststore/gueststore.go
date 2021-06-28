@@ -139,7 +139,7 @@ func (gs *GuestStore) CreateGuest(name string, id int, accompanyingGuests int) s
 		SeatedCount:    t.SeatedCount + accompanyingGuests + 1,
 	}
 	gs.tables[id] = newTable
-	log.Printf("seated count at table=%d is updated as %d", id, newTable.SeatedCount)
+	log.Printf("CreateGuest seated count at table=%d is updated as %d, from %d", id, newTable.SeatedCount, t.SeatedCount)
 
 	gs.guests[name] = guest
 	return guest.Name
@@ -178,13 +178,11 @@ func (gs *GuestStore) DeleteGuests(name string) error {
 	gs.Lock()
 	defer gs.Unlock()
 
-	var extraSeats int
-
-	if g, ok := gs.guests[name]; !ok {
-		extraSeats = g.AccompanyingGuests + 1
+	if _, ok := gs.guests[name]; !ok {
 		return fmt.Errorf("guest with name=%s not found", name)
 	}
 
+	extraSeats := gs.guests[name].AccompanyingGuests + 1
 	delete(gs.guests, name)
 
 	tID := gs.seatingMap[name]
@@ -198,7 +196,7 @@ func (gs *GuestStore) DeleteGuests(name string) error {
 		SeatedCount:    t.SeatedCount - extraSeats,
 	}
 	gs.tables[tID] = newTable
-	log.Printf("seated count at table=%d is updated as %d, previous was %d", tID, newTable.SeatedCount, t.SeatedCount)
+	log.Printf("DeleteGuests seated count at table=%#v is updated as %d, previous was %d", newTable, newTable.SeatedCount, t.SeatedCount)
 
 	return nil
 }
@@ -235,7 +233,7 @@ func (gs *GuestStore) GetEmptySeats() int {
 	count := 0
 	for _, t := range gs.tables {
 		count += (t.AvailableSeats - t.SeatedCount)
-		log.Printf("table=%#v has available seats=%d\n", t, count)
+		log.Printf("GetEmptySeats table=%#v has available seats=%d, total count=%d\n", t, t.AvailableSeats-t.SeatedCount, count)
 	}
 	return count
 }
