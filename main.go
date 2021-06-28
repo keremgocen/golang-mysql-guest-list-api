@@ -98,13 +98,13 @@ func (gs *guestServer) addGuestListRecord(w http.ResponseWriter, req *http.Reque
 // getGuestList returns all the guests registered on the list.
 // Handler for GET /guest_list/
 func (gs *guestServer) getGuestList(w http.ResponseWriter, req *http.Request) {
-	log.Printf("handling get all guests at %s\n", req.URL.Path)
+	log.Printf("handling get guest list %s\n", req.URL.Path)
 
 	type all struct {
-		Guests []gueststore.Guest `json:"guests"`
+		Guests []gueststore.ListedGuest `json:"guests"`
 	}
 
-	allGuests := gs.store.GetAllGuests()
+	allGuests := gs.store.GetAllRegisteredGuests()
 	renderJSON(w, all{Guests: allGuests})
 }
 
@@ -122,25 +122,13 @@ func (gs *guestServer) getGuestHandler(w http.ResponseWriter, req *http.Request)
 	renderJSON(w, guest)
 }
 
-// Guest Arrives
-// A guest may arrive with an entourage that is not the size indicated at the guest list.
-// If the table is expected to have space for the extras, allow them to come. Otherwise, this method should throw an error.
-// ```
-// PUT /guests/name
-// body:
-// {
-//     "accompanying_guests": int
-// }
-// response:
-// {
-//     "name": "string"
-// }
-// ```
+// seatArrivingGuest attempts to seat an arriving guest, after checking table availability.
+// Handler for PUT /guests/{name}
 func (gs *guestServer) seatArrivingGuest(w http.ResponseWriter, req *http.Request) {
 	log.Printf("handling arriving guest at %s\n", req.URL.Path)
 
 	type RequestGuest struct {
-		AccompanyingGuests int `json:"accompanyingGuests"`
+		AccompanyingGuests int `json:"accompanying_guests"`
 	}
 
 	name, _ := mux.Vars(req)["name"]
@@ -153,47 +141,79 @@ func (gs *guestServer) seatArrivingGuest(w http.ResponseWriter, req *http.Reques
 	}
 
 	// find guest's table
-	// tableID, err := gs.store.GetGuestTable(name)
-	// if err != nil {
-	// 	http.Error(w, err.Error(), http.StatusBadRequest)
-	// } else {
-	// 	// check available seats and update table
-	// 	id, err := gs.store.UpdateTable(tableID, rg.AccompanyingGuests+1)
-	// 	if err != nil {
-	// 		http.Error(w, err.Error(), http.StatusBadRequest)
-	// 	}
-	// 	log.Printf("updated table with id=%d\n", id)
-	// }
-	// // seat the guest
-	// n := gs.store.CreateGuest(name, tableID, rg.AccompanyingGuests)
-	renderJSON(w, ResponseName{Name: name})
+	tableID, err := gs.store.GetSeatingMap(name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	// get toal avaible seats
+	t, err := gs.store.GetTable(tableID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// check if table is available
+	log.Printf("table=%d has available seats=%d\n", t.Id, t.AvailableSeats-t.SeatedCount)
+	if t.SeatedCount+rg.AccompanyingGuests+1 > t.AvailableSeats {
+		http.Error(w, "not enough available seats left on the table", http.StatusBadRequest)
+		return
+	}
+
+	// seat the guest
+	n := gs.store.CreateGuest(name, tableID, rg.AccompanyingGuests)
+	renderJSON(w, ResponseName{Name: n})
 }
 
-// func (gs *guestServer) removeGuestsHandler(w http.ResponseWriter, req *http.Request) {
-// 	log.Printf("handling delete guests at %s\n", req.URL.Path)
+// deleteGuests removes guest and accompanying guests from the table
+// Handler for DELETE /guests/name
+func (gs *guestServer) deleteGuests(w http.ResponseWriter, req *http.Request) {
+	log.Printf("handling delete guests at %s\n", req.URL.Path)
 
-// 	name, _ := mux.Vars(req)["name"]
-// 	err := gs.store.DeleteGuests(name)
+	name, _ := mux.Vars(req)["name"]
+	err := gs.store.DeleteGuests(name)
 
-// 	if err != nil {
-// 		http.Error(w, err.Error(), http.StatusNotFound)
-// 	}
-// }
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+	}
+}
+
+// getGuests returns all currently seated guests.
+// Handler for GET /guests
+func (gs *guestServer) getGuests(w http.ResponseWriter, req *http.Request) {
+	log.Printf("handling get all seated guests at %s\n", req.URL.Path)
+
+	type all struct {
+		Guests []gueststore.ArrivedGuest `json:"guests"`
+	}
+
+	allGuests := gs.store.GetAllSeatedGuests()
+	renderJSON(w, all{Guests: allGuests})
+}
+
+// getGuests returns total number of empty seats.
+// Handler for GET /seats_empty
+func (gs *guestServer) getEmptySeats(w http.ResponseWriter, req *http.Request) {
+	log.Printf("handling get empty seats at %s\n", req.URL.Path)
+
+	type seatsEmpty struct {
+		SeatsEmpty int `json:"seats_empty"`
+	}
+
+	renderJSON(w, seatsEmpty{SeatsEmpty: gs.store.GetEmptySeats()})
+}
 
 func main() {
 	router := mux.NewRouter()
 	router.StrictSlash(true)
 	server := NewGuestServer()
 
-	router.HandleFunc("/guest_list/{name:[[:alpha:]]+}", server.addGuestListRecord).Methods("POST")
+	router.HandleFunc("/guest_list/{name:[[:alpha:]]+}/", server.addGuestListRecord).Methods("POST")
 	router.HandleFunc("/guest_list/", server.getGuestList).Methods("GET")
-	// PUT    /guests/name        :  seat arriving guest
 	router.HandleFunc("/guests/{name:[[:alpha:]]+}/", server.seatArrivingGuest).Methods("PUT")
-
-	// DELETE /guests/name        :  remove guest and accompanying guests from the table
-	// router.HandleFunc("/guests/{name:[[:alpha:]]+}/", server.removeGuestsHandler).Methods("DELETE")
-	// GET    /guests             :  get the guest list of arrived guests
-	// GET    /seats_empty        :  get number of empty seats
+	router.HandleFunc("/guests/{name:[[:alpha:]]+}/", server.deleteGuests).Methods("DELETE")
+	router.HandleFunc("/guests/", server.getGuests).Methods("GET")
+	router.HandleFunc("/seats_empty/", server.getEmptySeats).Methods("GET")
 
 	log.Fatal(http.ListenAndServe(":8080", router))
 }

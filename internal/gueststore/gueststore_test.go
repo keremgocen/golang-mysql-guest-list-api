@@ -18,12 +18,9 @@ func TestCreateAndGet(t *testing.T) {
 	if guest.Name != name {
 		t.Errorf("got guest.Name=%v, name=%v", guest.Name, name)
 	}
-	if guest.Table != 1 {
-		t.Errorf("got Table=%d, want %d", guest.Table, 1)
-	}
 
 	// Asking for all guests, we only get the one we put in.
-	allGuests := gs.GetAllGuests()
+	allGuests := gs.GetAllSeatedGuests()
 	if len(allGuests) != 1 || allGuests[0].Name != name {
 		t.Errorf("got len(allGuests)=%d, allGuests[0].Name=%v; want 1, %v", len(allGuests), allGuests[0].Name, name)
 	}
@@ -35,7 +32,7 @@ func TestCreateAndGet(t *testing.T) {
 
 	// Add another guest. Expect to find two guests in the store.
 	gs.CreateGuest("Joe", 2, 2)
-	allGuests2 := gs.GetAllGuests()
+	allGuests2 := gs.GetAllSeatedGuests()
 	if len(allGuests2) != 2 {
 		t.Errorf("got len(allGuests2)=%d; want 2", len(allGuests2))
 	}

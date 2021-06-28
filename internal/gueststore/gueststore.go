@@ -8,37 +8,47 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 )
 
-type Guest struct {
+type ListedGuest struct {
 	Table              int    `json:"table"`
 	Name               string `json:"name"`
 	AccompanyingGuests int    `json:"accompanying_guests"`
 }
 
+type ArrivedGuest struct {
+	Name               string    `json:"name"`
+	AccompanyingGuests int       `json:"accompanying_guests"`
+	TimeArrived        time.Time `json:"time_arrived"`
+}
+
 type Table struct {
 	Id             int `json:"id"`
 	AvailableSeats int `json:"available_seats"`
+	SeatedCount    int `json:"seated_count"`
 }
 
 type GuestList struct {
-	Guests []Guest `json:"guests"`
+	Guests []ListedGuest `json:"guests"`
 }
 
 // GuestStore is a simple in-memory database of guests; GuestStore methods are
 // safe to call concurrently.
 type GuestStore struct {
 	sync.Mutex
-	guests    map[string]Guest
-	tables    map[int]Table
-	guestList map[int]GuestList
+	guests     map[string]ArrivedGuest
+	tables     map[int]Table
+	guestList  map[int]GuestList
+	seatingMap map[string]int
 }
 
 func New() *GuestStore {
 	gs := &GuestStore{}
-	gs.guests = make(map[string]Guest)
+	gs.guests = make(map[string]ArrivedGuest)
 	gs.tables = make(map[int]Table)
 	gs.guestList = make(map[int]GuestList)
+	gs.seatingMap = make(map[string]int)
 	return gs
 }
 
@@ -49,13 +59,15 @@ func (gs *GuestStore) AddGuestToTableList(name string, id int, accompanying int)
 
 	gl := gs.guestList[id]
 	log.Printf("obtained guest list for table=%d, %#v\n", id, gl.Guests)
-	newGuest := Guest{
+	newGuest := ListedGuest{
 		Table:              id,
 		Name:               name,
 		AccompanyingGuests: accompanying,
 	}
 	gl.Guests = append(gl.Guests, newGuest)
 	gs.guestList[id] = gl
+
+	gs.seatingMap[name] = id
 	log.Printf("updated guest list for table=%d, %#v\n", id, gl.Guests)
 }
 
@@ -99,6 +111,7 @@ func (gs *GuestStore) CreateTable(id int, capacity int) int {
 	table := Table{
 		Id:             id,
 		AvailableSeats: capacity,
+		SeatedCount:    0,
 	}
 
 	log.Printf("created table %#v", table)
@@ -108,23 +121,46 @@ func (gs *GuestStore) CreateTable(id int, capacity int) int {
 }
 
 // CreateGuest creates a new guest in the store.
-func (gs *GuestStore) CreateGuest(name string, table int, accompanyingGuests int) string {
+func (gs *GuestStore) CreateGuest(name string, id int, accompanyingGuests int) string {
 	gs.Lock()
 	defer gs.Unlock()
 
-	guest := Guest{
+	guest := ArrivedGuest{
 		Name:               name,
-		Table:              table,
 		AccompanyingGuests: accompanyingGuests,
+		TimeArrived:        time.Now().UTC(),
 	}
+
+	// updated seated count at the table
+	t := gs.tables[id]
+	newTable := Table{
+		Id:             id,
+		AvailableSeats: t.AvailableSeats,
+		SeatedCount:    t.SeatedCount + accompanyingGuests + 1,
+	}
+	gs.tables[id] = newTable
+	log.Printf("seated count at table=%d is updated as %d", id, newTable.SeatedCount)
 
 	gs.guests[name] = guest
 	return guest.Name
 }
 
+// GetSeatingMap returns table number for the given guest name.
+func (gs *GuestStore) GetSeatingMap(name string) (int, error) {
+	gs.Lock()
+	defer gs.Unlock()
+
+	s, ok := gs.seatingMap[name]
+	if ok {
+		return s, nil
+	} else {
+		return -1, fmt.Errorf("seating map for guest=%s not found", name)
+	}
+}
+
 // GetGuest retrieves a guest from the store, by name. If no such name exists, an
 // error is returned.
-func (gs *GuestStore) GetGuest(name string) (Guest, error) {
+func (gs *GuestStore) GetGuest(name string) (ArrivedGuest, error) {
 	gs.Lock()
 	defer gs.Unlock()
 
@@ -132,41 +168,74 @@ func (gs *GuestStore) GetGuest(name string) (Guest, error) {
 	if ok {
 		return g, nil
 	} else {
-		return Guest{}, fmt.Errorf("guest with name=%s not found", name)
+		return ArrivedGuest{}, fmt.Errorf("guest with name=%s not found", name)
 	}
 }
 
-// // DeleteTask deletes the task with the given id. If no such id exists, an error
-// // is returned.
-// func (ts *TaskStore) DeleteTask(id int) error {
-// 	ts.Lock()
-// 	defer ts.Unlock()
-
-// 	if _, ok := ts.tasks[id]; !ok {
-// 		return fmt.Errorf("task with id=%d not found", id)
-// 	}
-
-// 	delete(ts.tasks, id)
-// 	return nil
-// }
-
-// // DeleteAllTasks deletes all tasks in the store.
-// func (ts *TaskStore) DeleteAllTasks() error {
-// 	ts.Lock()
-// 	defer ts.Unlock()
-
-// 	ts.tasks = make(map[int]Task)
-// 	return nil
-// }
-
-// GetAllGuests returns all the guests in the store, in arbitrary order.
-func (gs *GuestStore) GetAllGuests() []Guest {
+// DeleteGuests removes the guest with the given name. If no such name exists, an error
+// is returned. Guest's assigned table seated count is also updated.
+func (gs *GuestStore) DeleteGuests(name string) error {
 	gs.Lock()
 	defer gs.Unlock()
 
-	allGuests := make([]Guest, 0)
+	var extraSeats int
+
+	if g, ok := gs.guests[name]; !ok {
+		extraSeats = g.AccompanyingGuests + 1
+		return fmt.Errorf("guest with name=%s not found", name)
+	}
+
+	delete(gs.guests, name)
+
+	tID := gs.seatingMap[name]
+	if _, ok := gs.tables[tID]; !ok {
+		return fmt.Errorf("table with id=%d not found", tID)
+	}
+	t := gs.tables[tID]
+	newTable := Table{
+		Id:             tID,
+		AvailableSeats: t.AvailableSeats,
+		SeatedCount:    t.SeatedCount - extraSeats,
+	}
+	gs.tables[tID] = newTable
+	log.Printf("seated count at table=%d is updated as %d, previous was %d", tID, newTable.SeatedCount, t.SeatedCount)
+
+	return nil
+}
+
+// GetAllRegisteredGuests returns all the guests in the store, in arbitrary order.
+func (gs *GuestStore) GetAllRegisteredGuests() []ListedGuest {
+	gs.Lock()
+	defer gs.Unlock()
+
+	allGuests := make([]ListedGuest, 0)
 	for _, guestList := range gs.guestList {
 		allGuests = append(allGuests, guestList.Guests...)
 	}
 	return allGuests
+}
+
+// GetAllSeatedGuests returns all the seated guests in the store, in arbitrary order.
+func (gs *GuestStore) GetAllSeatedGuests() []ArrivedGuest {
+	gs.Lock()
+	defer gs.Unlock()
+
+	allGuests := make([]ArrivedGuest, 0)
+	for _, guest := range gs.guests {
+		allGuests = append(allGuests, guest)
+	}
+	return allGuests
+}
+
+// GetEmptySeats returns total number of empty seats.
+func (gs *GuestStore) GetEmptySeats() int {
+	gs.Lock()
+	defer gs.Unlock()
+
+	count := 0
+	for _, t := range gs.tables {
+		count += (t.AvailableSeats - t.SeatedCount)
+		log.Printf("table=%#v has available seats=%d\n", t, count)
+	}
+	return count
 }
