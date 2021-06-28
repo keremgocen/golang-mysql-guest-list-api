@@ -86,15 +86,15 @@ func (gs *GuestStore) GetTable(id int) (Table, error) {
 }
 
 // UpdateTableCapacity updates an existing table's available seat count in the store.
-func (gs *GuestStore) UpdateTableCapacity(id int, newGuests int) (int, error) {
+func (gs *GuestStore) UpdateTableCapacity(id int, newCapacity int) (int, error) {
 	gs.Lock()
 	defer gs.Unlock()
 
-	t, ok := gs.tables[id]
+	_, ok := gs.tables[id]
 	if ok {
 		newTable := Table{
 			Id:             id,
-			AvailableSeats: t.AvailableSeats + newGuests,
+			AvailableSeats: newCapacity,
 		}
 		gs.tables[id] = newTable
 		return newTable.Id, nil
