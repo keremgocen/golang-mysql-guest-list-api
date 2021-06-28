@@ -34,13 +34,12 @@ $ go run main.go
 $ sh testing/manual.sh (in another terminal tab)
 ```
 
-### In progress (missing)
+### Future improvements (missing)
+
+- [ ] Use MySQL/gorm in gueststore data access layer
+- [ ] Write tests for the server HTTP calls
 
 The setup:
-
-- The API layer will run on a Docker container
-- Another container will run MySQL which will serve as a storage to the API layer
-- docker-compose will be used to run the app
-
-- Use MySQL/gorm in gueststore data access layer
-- Write tests for the server HTTP calls
+- [ ] The app could be run on a Docker container
+- [ ] Another container will run MySQL which will serve as a storage to the API layer
+- [ ] use docker-compose
